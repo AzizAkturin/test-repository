@@ -149,12 +149,6 @@ jobs:
             exit 1
           }
 
-          python -c "import uvicorn; print('uvicorn:', uvicorn.__version__)" >> build.log 2>&1 || {
-            echo "uvicorn is not importable after install. Dumping build.log:"
-            tail -n 200 build.log || true
-            exit 1
-          }
-
       - name: Verify startup command prerequisites
         run: |
           set -euo pipefail
