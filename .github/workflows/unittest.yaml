@@ -311,7 +311,10 @@ jobs:
           go version
           go env GOPATH GOMOD GOCACHE
 
-          go run . read '1198870303' 'docs.txt' '${{ steps.oidc.outputs.token }}' '${{ inputs.target_branch }}'
+          DOCS_ABS_PATH="${GITHUB_WORKSPACE}/docs.txt"
+          echo "Docs absolute path: $DOCS_ABS_PATH"
+
+          go run . read '1198870303' "$DOCS_ABS_PATH" '${{ steps.oidc.outputs.token }}' '${{ inputs.target_branch }}'
 
           if [ ! -f synrax/report.json ]; then
             echo "ERROR: report.json was not created."
