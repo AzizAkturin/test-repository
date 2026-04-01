@@ -1,0 +1,39 @@
+API Documentation
+Version: v1
+Base URL: http://127.0.0.1:5000
+
+Authentication
+- None required
+
+---
+
+GET /
+Purpose
+- Returns a welcome message.
+
+Responses
+| Status | Description | Example          |
+| ------ | ----------- | ---------------- |
+| 200    | success     | "Hello, World!"  |
+
+---
+
+GET /health
+Purpose
+- Check if the app is running.
+
+Responses
+| Status | Description | Example                    |
+| ------ | ----------- | -------------------------- |
+| 200    | success     | "Everything looks good!"   |
+
+---
+
+GET /about
+Purpose
+- Returns info about the app.
+
+Responses
+| Status | Description | Example         |
+| ------ | ----------- | --------------- |
+| 200    | success     | "About Page!"   |
