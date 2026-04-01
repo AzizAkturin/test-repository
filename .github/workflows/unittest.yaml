@@ -1,0 +1,426 @@
+name: Synrax Unittest Runner
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_branch:
+        description: "Branch to checkout and test"
+        required: true
+        default: "main"
+        type: string
+
+concurrency:
+  group: synrax-unittest-${{ github.repository }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  id-token: write
+  contents: write
+  actions: read
+
+jobs:
+  run-unittests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    defaults:
+      run:
+        shell: bash
+
+    env:
+      SYNRAX_API_BASE_URL: "https://persuadedly-unrebuilt-filiberto.ngrok-free.dev"
+      DEFAULT_HEALTH_URL: "http://127.0.0.1:5000/health"
+      SYNRAX_OIDC_AUDIENCE: "synrax"
+
+      DEFAULT_LISTENER_CMD: "python app.py"
+
+      ROOT_DIR: "."
+      SYNRAX_DOCS_PATH: "docs.txt"
+      SYNRAX_REPO_ID: "1198870303"
+      SYNRAX_PORT: "5000"
+      SYNRAX_HEALTH_ENDPOINT_RAW: "health"
+      BUILD_LOG_PATH: "./build.log"
+      LISTENER_LOG_PATH: "./listener.log"
+
+    steps:
+      - name: Print workflow context
+        run: |
+          set -euo pipefail
+          echo "Repository: $GITHUB_REPOSITORY"
+          echo "Ref: $GITHUB_REF"
+          echo "SHA: $GITHUB_SHA"
+          echo "Actor: $GITHUB_ACTOR"
+          echo "Runner OS: $RUNNER_OS"
+          echo "Workspace: $GITHUB_WORKSPACE"
+          echo "ROOT_DIR: $ROOT_DIR"
+          echo "SYNRAX_DOCS_PATH: $SYNRAX_DOCS_PATH"
+          echo "SYNRAX_REPO_ID: $SYNRAX_REPO_ID"
+          echo "DEFAULT_HEALTH_URL: $DEFAULT_HEALTH_URL"
+          echo "DEFAULT_LISTENER_CMD: $DEFAULT_LISTENER_CMD"
+
+      - name: Preflight validate templated values
+        run: |
+          set -euo pipefail
+
+          fail() {
+            echo "ERROR: $1"
+            exit 1
+          }
+
+          [ -n "${SYNRAX_API_BASE_URL:-}" ] || fail "SYNRAX_API_BASE_URL is empty"
+          [ -n "${ROOT_DIR:-}" ] || fail "ROOT_DIR is empty"
+          [ -n "${SYNRAX_DOCS_PATH:-}" ] || fail "SYNRAX_DOCS_PATH is empty"
+          [ -n "${SYNRAX_REPO_ID:-}" ] || fail "SYNRAX_REPO_ID is empty"
+          [ -n "${DEFAULT_HEALTH_URL:-}" ] || fail "DEFAULT_HEALTH_URL is empty"
+          [ -n "${DEFAULT_LISTENER_CMD:-}" ] || fail "DEFAULT_LISTENER_CMD is empty"
+
+          case "$ROOT_DIR" in
+            *".."*)
+              fail "ROOT_DIR must not contain '..'"
+              ;;
+          esac
+
+      - name: Checkout User Repo
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.target_branch }}
+          fetch-depth: 0
+
+      - name: Validate repository files and directories
+        run: |
+          set -euo pipefail
+
+          if [ ! -d "$ROOT_DIR" ]; then
+            echo "Repository tree:"
+            pwd
+            ls -la
+            echo "ERROR: ROOT_DIR does not exist: $ROOT_DIR"
+            exit 1
+          fi
+
+          echo "Listing root dir contents:"
+          ls -la "$ROOT_DIR"
+      - name: Prepare temporary Python cache dependency file
+        run: |
+          set -euo pipefail
+          mkdir -p "$ROOT_DIR"
+
+          TEMP_REQ_CREATED=0
+          if [ ! -f "$ROOT_DIR/requirements.txt" ]; then
+            echo "# temporary placeholder created by workflow for setup-python cache path" > "$ROOT_DIR/requirements.txt"
+            TEMP_REQ_CREATED=1
+          fi
+
+          echo "TEMP_REQ_CREATED=$TEMP_REQ_CREATED" >> "$GITHUB_ENV"
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: |
+            ./requirements.txt
+      - name: Remove temporary Python cache dependency file
+        run: |
+          set -euo pipefail
+          if [ "${TEMP_REQ_CREATED:-0}" = "1" ]; then
+            rm -f "$ROOT_DIR/requirements.txt"
+          fi
+      - name: Python environment diagnostics
+        run: |
+          set -euo pipefail
+          python -V
+          which python || true
+          python -m pip --version || true
+
+      - name: Build and Install Dependencies (Python)
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "."
+
+          touch build.log
+
+          echo "Running build/install command: pip install -r requirements.txt"
+          python -V
+          python -m pip install --upgrade pip
+          bash -lc 'pip install -r requirements.txt' > build.log 2>&1 || {
+            echo "Build/install failed. Dumping build.log:"
+            tail -n 200 build.log || true
+            exit 1
+          }
+
+          python -c "import uvicorn; print('uvicorn:', uvicorn.__version__)" >> build.log 2>&1 || {
+            echo "uvicorn is not importable after install. Dumping build.log:"
+            tail -n 200 build.log || true
+            exit 1
+          }
+
+      - name: Verify startup command prerequisites
+        run: |
+          set -euo pipefail
+          cd "$ROOT_DIR"
+
+          touch listener.log
+
+          echo "Verifying listener command can be parsed..."
+          bash -lc 'printf "%s\n" "$DEFAULT_LISTENER_CMD"' >> listener.log 2>&1
+
+      - name: Start API listener
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "."
+
+          : "${DEFAULT_LISTENER_CMD:?DEFAULT_LISTENER_CMD is required}"
+          : "${DEFAULT_HEALTH_URL:?DEFAULT_HEALTH_URL is required}"
+
+          echo "Starting listener using: $DEFAULT_LISTENER_CMD"
+          rm -f listener.pid listener.log
+
+          nohup bash -lc "$DEFAULT_LISTENER_CMD" > listener.log 2>&1 &
+          echo $! > listener.pid
+          echo "Listener PID: $(cat listener.pid)"
+
+          sleep 2
+          if ! kill -0 "$(cat listener.pid)" 2>/dev/null; then
+            echo "Listener died immediately after startup. Dumping listener.log:"
+            tail -n 200 listener.log || true
+            exit 1
+          fi
+
+      - name: Additional process diagnostics after start
+        run: |
+          set -euo pipefail
+          cd "$ROOT_DIR"
+
+          PID="$(cat listener.pid)"
+          echo "Checking process tree for PID=$PID"
+          ps -fp "$PID" || true
+          pgrep -a -P "$PID" || true
+          ss -ltnp || true
+
+      - name: Check on Health Endpoints
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "."
+
+          URL="$DEFAULT_HEALTH_URL"
+          PID="$(cat listener.pid)"
+
+          echo "Waiting for health: $URL (pid=$PID)"
+
+          for i in {1..60}; do
+            if ! kill -0 "$PID" 2>/dev/null; then
+              echo "Listener process is not running (pid=$PID). Dumping listener.log:"
+              tail -n 200 listener.log || true
+              exit 1
+            fi
+
+            if curl -fsS "$URL" >/dev/null; then
+              echo "Health check passed."
+              exit 0
+            fi
+
+            echo "Not ready yet... (${i}/60)"
+            sleep 2
+          done
+
+          echo "Health check failed after timeout. Dumping listener.log:"
+          tail -n 200 listener.log || true
+          exit 1
+
+      - name: Smoke test non-health endpoint connectivity
+        run: |
+          set -euo pipefail
+          echo "Health endpoint responded successfully; proceeding to Synrax CLI stage."
+
+      - name: Checkout Synrax unittest public repo
+        uses: actions/checkout@v4
+        with:
+          repository: Synrax-App/unittest
+          ref: main
+          path: unittest
+
+      - name: Validate Synrax unittest checkout
+        run: |
+          set -euo pipefail
+          test -d unittest
+          ls -la unittest
+          test -f unittest/go.mod || {
+            echo "ERROR: unittest/go.mod not found"
+            exit 1
+          }
+
+      - name: Setup Go (Synrax CLI)
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
+      - name: Ensure jq exists
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v jq >/dev/null 2>&1; then
+            sudo apt-get update -y
+            sudo apt-get install -y jq
+          fi
+
+      - name: Verify required tools
+        run: |
+          set -euo pipefail
+          command -v git
+          command -v curl
+          command -v jq
+          command -v go
+
+      - name: Get GitHub OIDC token
+        id: oidc
+        shell: bash
+        run: |
+          set -euo pipefail
+          TOK=$(curl -fsS \
+            -H "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${SYNRAX_OIDC_AUDIENCE}" \
+            | jq -r .value)
+
+          if [ -z "$TOK" ] || [ "$TOK" = "null" ]; then
+            echo "ERROR: failed to obtain OIDC token"
+            exit 1
+          fi
+
+          echo "token=$TOK" >> "$GITHUB_OUTPUT"
+
+      - name: Validate OIDC token shape
+        run: |
+          set -euo pipefail
+          TOK='${{ steps.oidc.outputs.token }}'
+          if [ -z "$TOK" ]; then
+            echo "ERROR: OIDC output token is empty"
+            exit 1
+          fi
+          PARTS="$(awk -F'.' '{print NF}' <<< "$TOK")"
+          if [ "$PARTS" -lt 3 ]; then
+            echo "ERROR: OIDC token does not look like a JWT"
+            exit 1
+          fi
+
+      - name: Run Synrax CLI
+        shell: bash
+        working-directory: unittest
+        run: |
+          set -euo pipefail
+
+          mkdir -p synrax
+
+          echo "Running go CLI from $(pwd)"
+          go version
+          go env GOPATH GOMOD GOCACHE
+
+          go run . read '1198870303' 'docs.txt' '${{ steps.oidc.outputs.token }}' '${{ inputs.target_branch }}'
+
+          if [ ! -f synrax/report.json ]; then
+            echo "ERROR: report.json was not created."
+            exit 1
+          fi
+
+          echo "report.json produced successfully."
+          ls -la synrax/report.json
+          jq . synrax/report.json >/dev/null 2>&1 || {
+            echo "ERROR: report.json is not valid JSON"
+            cat synrax/report.json || true
+            exit 1
+          }
+
+      - name: Show short report preview
+        run: |
+          set -euo pipefail
+          echo "===== report preview ====="
+          head -c 4000 unittest/synrax/report.json || true
+          echo
+          echo "===== end preview ====="
+
+      - name: Commit report.json and report.md to repo
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cp unittest/synrax/report.json ./report.json
+          cp unittest/synrax/report.md ./report.md
+
+          git config user.name "synrax-bot"
+          git config user.email "synrax-bot@users.noreply.github.com"
+
+          git status --short
+
+          git add report.json
+          git add report.md
+
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+          else
+            git commit -m "Add Synrax unittest reports"
+
+            TARGET_BRANCH="${{ inputs.target_branch }}"
+
+            git stash --include-untracked || true
+
+            git pull --rebase origin "$TARGET_BRANCH" || {
+              echo "Rebase pull failed. Dumping status:"
+              git status || true
+              exit 1
+            }
+            git stash pop || true
+            
+            git push origin "HEAD:refs/heads/$TARGET_BRANCH"
+          fi
+
+      - name: Verify report committed state
+        if: always()
+        run: |
+          set -euo pipefail
+          git status --short || true
+          git log --oneline -n 5 || true
+
+      - name: Stop API listener (always)
+        if: always()
+        run: |
+          set -euo pipefail
+          cd "$ROOT_DIR"
+
+          if [ -f listener.pid ]; then
+            PID="$(cat listener.pid)"
+            if kill -0 "$PID" 2>/dev/null; then
+              echo "Stopping listener pid=$PID"
+              kill "$PID" || true
+              sleep 2
+              kill -9 "$PID" || true
+            fi
+          fi
+
+      - name: Dump logs on failure (always)
+        if: always()
+        run: |
+          set -euo pipefail
+
+          echo "===== listener.log ====="
+          tail -n 300 "$LISTENER_LOG_PATH" || true
+
+          echo "===== build.log ====="
+          tail -n 300 "$BUILD_LOG_PATH" || true
+
+          echo "===== unittest logs ====="
+          find unittest -type f -name "*.log" -maxdepth 5 -print -exec tail -n 200 {} \; || true
+
+      - name: Upload logs (always)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: synrax-run-logs
+          if-no-files-found: warn
+          retention-days: 14
+          path: |
+            ./listener.log
+            ./build.log
+            unittest/**/*.log
+            unittest/synrax/report.json
