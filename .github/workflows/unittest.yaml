@@ -28,7 +28,7 @@ jobs:
         shell: bash
 
     env:
-      SYNRAX_API_BASE_URL: "https://persuadedly-unrebuilt-filiberto.ngrok-free.dev"
+      SYNRAX_API_BASE_URL: "http://localhost:3000"
       DEFAULT_HEALTH_URL: "http://127.0.0.1:5000/health"
       SYNRAX_OIDC_AUDIENCE: "synrax"
 
@@ -311,7 +311,12 @@ jobs:
           go version
           go env GOPATH GOMOD GOCACHE
 
-          DOCS_ABS_PATH="${GITHUB_WORKSPACE}/docs.txt"
+          echo "PWD=$(pwd)"
+          echo "GITHUB_WORKSPACE=${GITHUB_WORKSPACE}"
+          echo "Users Root Dir=."
+          echo "DocsPath raw=docs.txt"
+
+          DOCS_ABS_PATH="${GITHUB_WORKSPACE}/./docs.txt"
           echo "Docs absolute path: $DOCS_ABS_PATH"
 
           go run . read '1198870303' "$DOCS_ABS_PATH" '${{ steps.oidc.outputs.token }}' '${{ inputs.target_branch }}'
