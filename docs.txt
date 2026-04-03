@@ -14,7 +14,7 @@ Purpose
 Responses
 | Status | Description | Example          |
 | ------ | ----------- | ---------------- |
-| 200    | success     | "Hello, World!"  |
+| 200    | success     | "message": "Hello, World!"  |
 
 ---
 
@@ -25,13 +25,13 @@ Purpose
 Responses
 | Status | Description | Example                    |
 | ------ | ----------- | -------------------------- |
-| 200    | success     | "Everything looks good!"   |
+| 200    | success     | "message": "Everything looks good!"   |
 
 ---
 
 GET /about
 Purpose
-- Returns info about the app.
+- Returns just the HTML text "About Page!"
 
 Responses
 | Status | Description | Example         |
