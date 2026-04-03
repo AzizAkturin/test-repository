@@ -11,8 +11,10 @@
 **Booted Code:** 200
 
 **Booted Output:**
-```
-Hello, World!
+```json
+{
+  "message": "Hello, World!"
+}
 ```## Endpoint: /about
 
 ### Success: False
@@ -37,6 +39,8 @@ About Page!
 **Booted Code:** 200
 
 **Booted Output:**
-```
-Everything looks good!
+```json
+{
+  "message": "Everything looks good!"
+}
 ```

@@ -11,15 +11,15 @@
       "method": "GET",
       "test_id": "success-valid-request",
       "passed": false,
-      "failure_type": "response_parse_error",
-      "why_failed": "Expected structured content, but response body is not valid JSON.",
-      "error": "response content is not valid JSON",
+      "failure_type": "content_mismatch",
+      "why_failed": "Response content mismatch at $ (expected=\"Hello, World!\" got={\"message\":\"Hello, World!\"}).",
+      "error": "response content mismatch",
       "expected_status": [
         200
       ],
       "expected_content": "Hello, World!",
       "status": 200,
-      "body": "Hello, World!",
+      "body": "{\n  \"message\": \"Hello, World!\"\n}\n",
       "latency_ms": 1
     },
     {
@@ -43,15 +43,15 @@
       "method": "GET",
       "test_id": "success-valid-request",
       "passed": false,
-      "failure_type": "response_parse_error",
-      "why_failed": "Expected structured content, but response body is not valid JSON.",
-      "error": "response content is not valid JSON",
+      "failure_type": "content_mismatch",
+      "why_failed": "Response content mismatch at $ (expected=\"Everything looks good!\" got={\"message\":\"Everything looks good!\"}).",
+      "error": "response content mismatch",
       "expected_status": [
         200
       ],
       "expected_content": "Everything looks good!",
       "status": 200,
-      "body": "Everything looks good!",
+      "body": "{\n  \"message\": \"Everything looks good!\"\n}\n",
       "latency_ms": 1
     }
   ]
